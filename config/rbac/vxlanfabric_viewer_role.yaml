@@ -1,0 +1,20 @@
+# permissions for end users to view vxlanfabrics.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vxlanfabric-viewer-role
+rules:
+- apiGroups:
+  - topo.winlab.nycu
+  resources:
+  - vxlanfabrics
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - topo.winlab.nycu
+  resources:
+  - vxlanfabrics/status
+  verbs:
+  - get

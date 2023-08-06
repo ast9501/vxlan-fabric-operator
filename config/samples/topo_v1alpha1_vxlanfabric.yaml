@@ -1,0 +1,6 @@
+apiVersion: topo.winlab.nycu/v1alpha1
+kind: VxlanFabric
+metadata:
+  name: vxlanfabric-sample
+spec:
+  # TODO(user): Add fields here

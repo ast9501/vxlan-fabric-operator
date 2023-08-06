@@ -1,0 +1,24 @@
+# permissions for end users to edit vxlanfabrics.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vxlanfabric-editor-role
+rules:
+- apiGroups:
+  - topo.winlab.nycu
+  resources:
+  - vxlanfabrics
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - topo.winlab.nycu
+  resources:
+  - vxlanfabrics/status
+  verbs:
+  - get
