@@ -4,3 +4,8 @@ metadata:
   name: vxlanfabric-sample
 spec:
   # TODO(user): Add fields here
+  nodeList:
+    - endpoint: "192.168.101.176:30188"
+      interface: "banscore"
+    - endpoint: "192.168.101.128:30188"
+      interface: "bansaccess"

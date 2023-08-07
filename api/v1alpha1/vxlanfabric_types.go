@@ -25,7 +25,7 @@ import (
 
 type Node struct {
 	Endpoint string `json:"endpoint"`
-	Iface	string `json:"interface"`
+	Iface    string `json:"interface"`
 }
 
 // VxlanFabricSpec defines the desired state of VxlanFabric
