@@ -28,3 +28,8 @@ make undeploy
 ### v0.0.x
 Initial version for PoC (Proof of Concept):
 - Support point-to-point topology
+
+### v0.1.x
+>NOTICE: only compatiable with TN-Manager version 0.3.x+
+- Establish vxlan (bridge) tunnel, not just activate it
+- Support slice rule installation
