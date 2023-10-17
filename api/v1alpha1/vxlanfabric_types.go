@@ -24,8 +24,16 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 type Node struct {
-	Endpoint string `json:"endpoint"`
-	Iface    string `json:"interface"`
+	Endpoint     string `json:"endpoint"`
+	Iface        string `json:"interface"`
+	OutgoingFace string `json:"outgoing"`
+}
+
+type Slice struct {
+	Sd 		string 	`json:"sd"`
+	Src 	string 	`json:"src"`
+	Dst 	string 	`json:"dst"`
+	Rate 	int 	`json:"rateLimit"` 
 }
 
 // VxlanFabricSpec defines the desired state of VxlanFabric
@@ -35,7 +43,10 @@ type VxlanFabricSpec struct {
 
 	// Foo is an example field of VxlanFabric. Edit vxlanfabric_types.go to remove/update
 	//Foo string `json:"foo,omitempty"`
-	NodeList []Node `json:"nodeList"`
+	NodeList  	[]Node `json:"nodeList"`
+	Slice 		[]Slice `json:"slice"`
+	//RateLimit int    `json:"rateLimit"`
+	//SliceSD   string `json:"sliceSD"`
 }
 
 // VxlanFabricStatus defines the observed state of VxlanFabric

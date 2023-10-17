@@ -44,13 +44,35 @@ spec:
                       type: string
                     interface:
                       type: string
+                    outgoing:
+                      type: string
                   required:
                   - endpoint
                   - interface
+                  - outgoing
+                  type: object
+                type: array
+              slice:
+                items:
+                  properties:
+                    dst:
+                      type: string
+                    rateLimit:
+                      type: integer
+                    sd:
+                      type: string
+                    src:
+                      type: string
+                  required:
+                  - dst
+                  - rateLimit
+                  - sd
+                  - src
                   type: object
                 type: array
             required:
             - nodeList
+            - slice
             type: object
           status:
             description: VxlanFabricStatus defines the observed state of VxlanFabric

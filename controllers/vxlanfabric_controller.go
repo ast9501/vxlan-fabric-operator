@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -27,16 +28,39 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"strings"
+	"net"
+	"bytes"
 
 	topov1alpha1 "github.com/ast9501/vxlan-fabric-operator/api/v1alpha1"
+	internal "github.com/ast9501/vxlan-fabric-operator/internal"
 )
 
 var logger = log.Log.WithName("controller_vxlan")
 
 const finalizerName string = "vxlanfabric.finalizer.win.nycu"
 
-// TN Manager api endpoints
+// TN Manager api endpoints prefix
 const vxlanCommApi string = "/api/v1/vxlan/"
+const bridgeCommApi string = "/api/v1/bridge/"
+const sliceCommApi string = "/api/v1/slice/"
+var vxlanIntfIpStart string = "192.168.3.220"
+
+
+type createVxlanBrPayload struct {
+	BindInterface  string `json:"bindInterface"`
+	LocalBrIp      string `json:"localBrIp"`
+	RemoteIp       string `json:"remoteIp"`
+	VxlanId        string `json:"vxlanId"`
+	VxlanInterface string `json:"vxlanInterface"`
+}
+
+type createSlicePayload struct {
+	DstIp 		string 	`json:"DstIP"`
+	FlowRate 	int 	`json:FlowRate`
+	SliceSd 	string 	`json:SliceSD`
+	SrcIp		string 	`json:"SrcIP"`
+}
 
 const (
 	StateNull       string = ""
@@ -94,6 +118,8 @@ func (r *VxlanFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// The finalizer is present
 			// Delete the fabric
 			for _, e := range instance.Spec.NodeList {
+				//TODO: Only remove single slice while there are still another slice on vxlan tunnel
+				//FIXME: Check if vxlan bridge exist before delete it
 				api := newDelVxlanReq(e.Endpoint, e.Iface)
 				client := &http.Client{}
 				req, err := http.NewRequest("DELETE", api, nil)
@@ -130,7 +156,7 @@ func (r *VxlanFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return reconcile.Result{}, nil
 	}
 
-	// TODO: Activate two nodes vxlan interface
+	// Activate two nodes vxlan interface
 	if instance.Status.State == StateActivating || instance.Status.State == StateActivated {
 		logger.Info("Topology is activate")
 		return reconcile.Result{}, nil
@@ -150,38 +176,80 @@ func (r *VxlanFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	var activateState map[string]int = make(map[string]int)
 
+	s := internal.NewStack()
+	// Parse all nodes ip
+	for _, e := range instance.Spec.NodeList {
+		endpointParts := strings.Split(e.Endpoint, ":")
+		s.Push(&internal.Node{endpointParts[0]})
+	}
+
+	// Keep central node api endpoints (first object of NodeList as central node)
+	var centralNodeBaseUrl string = ""
+	var centralNodeIntf string = ""
+
 	for i, e := range instance.Spec.NodeList {
 		// Activate the vxlan interface in topology
 		logger.Info("Activate vxlan interface on node", "node index", i, "node endpoint", e.Endpoint, "node interface", e.Iface)
 
 		if i == 0 {
 			instance.Status.Node1Ip = e.Endpoint
+			centralNodeBaseUrl = e.Endpoint
+			centralNodeIntf = e.Iface
 		} else if i == 1 {
 			instance.Status.Node2Ip = e.Endpoint
 		}
 
-		api := newActiVxlanReq(e.Endpoint, e.Iface)
+		// If vxlan bridge exist, skip
+		getVxlanApi := newGetVxlanReq(e.Endpoint, e.Iface)
 		client := &http.Client{}
-		req, err := http.NewRequest("POST", api, nil)
+		req, err := http.NewRequest("GET", getVxlanApi, nil)
 		if err != nil {
-			logger.Error(err, "Failed to build activate vxlan request")
+			logger.Error(err, "Failed to build get vxlan request")
 		}
 
 		resp, err := client.Do(req)
+
 		if err != nil {
-			logger.Error(err, "Failed to send activate vxlan request", "Request.Url", api)
+			logger.Error(err, "Failed to retrieve vxlan status", "Request.Url", getVxlanApi)
 		} else {
-			if resp.StatusCode <= 300 {
-				logger.Info("vxlan interface is activated", "Request.Url", api, "Request.Iface", e.Iface)
+			if resp.StatusCode < 400 {
+				logger.Info("Vxlan interface existed")
+				continue
+			} else {
+				logger.Info("Vxlan interface not existed, request for new vxlan interface", "Node", e.Endpoint)
+			}
+		}
+
+		// If vxlan bridge not exist, create new vxlan bridge
+		newVxlanApi := newCreateVxlanReq(e.Endpoint, e.Iface)
+		
+		// Build create vxlan body
+		newVxlanBridgeIpv4 := newIp()
+		newVxlanPayload, err := newCreateVxlanBody(e.OutgoingFace, newVxlanBridgeIpv4, s.Pop().Value, "100", "vxlan100")
+		if err != nil {
+			logger.Error(err, "Failed to build create vxlan request body")
+		}
+		req, err = http.NewRequest("POST", newVxlanApi, bytes.NewReader([]byte(newVxlanPayload)))
+		if err != nil {
+			logger.Error(err, "Failed to build create vxlan request")
+		}
+
+		resp, err = client.Do(req)
+		if err != nil {
+			logger.Error(err, "Failed to send create vxlan request", "Request.Url", newVxlanApi)
+		} else {
+			if resp.StatusCode < 300 {
+				logger.Info("vxlan interface is activated", "Request.Url", newVxlanApi, "Request.Iface", e.Iface)
 				activateState[e.Endpoint] = 1
 			} else {
-				logger.Info("Activate the vxlan interface in unexpected response status, check the TN Manager logs on node ", "Request.Url", api, "StatusCode", resp.StatusCode)
+				logger.Info("Activate the vxlan interface in unexpected response status, check the TN Manager logs on node ", "Request.Url", newVxlanApi, "StatusCode", resp.StatusCode)
 				activateState[e.Endpoint] = 0
 			}
 		}
 		resp.Body.Close()
 	}
 
+	// Check if vxlan bridge activated
 	for k, v := range activateState {
 		if v != 1 {
 			logger.Info("The vxlan interface on Node is not activated", "Node.Endpoint", k)
@@ -189,6 +257,42 @@ func (r *VxlanFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 	logger.Info("All nodes in topology are activated")
+
+	// Create new slice on vxlan bridge
+	logger.Info("Start to install slice rules")
+
+	// Apply slice rules on central node only
+	createSliceApi := newCreateSliceReq(centralNodeBaseUrl, centralNodeIntf)
+
+	// Loop: create slice
+	for _, e := range instance.Spec.Slice {
+
+		client := &http.Client{}
+		// Build slice create body
+		payload, err := newCreateSliceBody(e.Dst, e.Rate, e.Sd, e.Src)
+		if err != nil {
+			logger.Error(err, "Failed to build create slice body")
+		}
+		
+		req, err := http.NewRequest("POST", createSliceApi, bytes.NewReader([]byte(payload)))
+		if err != nil {
+			logger.Error(err, "Failed to build create slice request")
+		}
+
+		resp, err := client.Do(req)
+
+		if err != nil {
+			logger.Error(err, "Failed to launch create slice request", "Request.Url", createSliceApi)
+		} else {
+			if resp.StatusCode < 400 {
+				logger.Info("Slice installation successfully")
+				continue
+			} else {
+				logger.Info("Error occured during slice installation procedure, check tn agent logs for more info", "Node", centralNodeBaseUrl)
+			}
+		}
+	}
+
 	instance.Status.State = StateActivated
 	err = r.Client.Status().Update(context.TODO(), instance)
 
@@ -224,8 +328,61 @@ func newDelVxlanReq(url, intf string) string {
 	return fmt.Sprintf("http://"+url+vxlanCommApi+"%s", intf)
 }
 
-func newActiVxlanReq(url, intf string) string {
-	return fmt.Sprintf("http://"+url+vxlanCommApi+"%s/activate", intf)
+func newGetVxlanReq(url, intf string) string {
+	return fmt.Sprintf("http://"+url+bridgeCommApi+"%s", intf)
+}
+
+func newCreateVxlanReq(url, intf string) string {
+	return fmt.Sprintf("http://"+url+vxlanCommApi+"%s/", intf)
+}
+
+func newCreateSliceReq(url, intf string) string {
+	return fmt.Sprintf("http://"+url+sliceCommApi+"%s/", intf)
+}
+
+func newCreateVxlanBody(bindIntf, vxlanBrIp, remoteIntfIp, vxlanId, vxlanIntfName string) (string, error) {
+	payload := createVxlanBrPayload{
+		BindInterface:  bindIntf,
+		LocalBrIp:      vxlanBrIp,
+		RemoteIp:       remoteIntfIp,
+		VxlanId:        vxlanId,
+		VxlanInterface: vxlanIntfName,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+func newCreateSliceBody(dstIp string, flowRate int, sliceSd string, srcIp string) (string, error) {
+	payload := createSlicePayload{
+		DstIp: dstIp,
+		FlowRate: flowRate,
+		SliceSd: sliceSd,
+		SrcIp: srcIp,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+// Allocate new ip for vxlan bridge interface
+func newIp() string {
+	ip := net.ParseIP(vxlanIntfIpStart)
+	ipv4 := ip.To4()
+	// FIXME: Dynamic generate new ip with CIDR (fixed to 24 now)
+	ipv4[3] += 1
+	nextIpv4 := net.IPv4(ipv4[0], ipv4[1], ipv4[2], ipv4[3])
+	vxlanIntfIpStart = nextIpv4.String()
+	logger.Info("Generate new vxlan bridge ip", "ipv4", ipv4.String() + "/24")
+	return ipv4.String() + "/24"
 }
 
 // removeFinalizer removes the given finalizer from the finalizers slice

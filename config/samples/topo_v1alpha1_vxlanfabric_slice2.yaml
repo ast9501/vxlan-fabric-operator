@@ -1,7 +1,7 @@
 apiVersion: topo.winlab.nycu/v1alpha1
 kind: VxlanFabric
 metadata:
-  name: vxlanfabric-sample
+  name: vxlanfabric-sample-2
 spec:
   # TODO(user): Add fields here
   # TODO: add new field for new feature
@@ -13,10 +13,10 @@ spec:
       interface: "bansaccess"
       outgoing: "enp0s9"
   slice:
-    - sd: "010203"
+    - sd: "112233"
       # SHOULD be vxlan bridge ip
-      src: "192.168.3.221"
-      dst: "192.168.3.222"
-      rateLimit: 800
+      src: "192.168.3.102"
+      dst: "192.168.3.103"
+      rateLimit: 400
   #rateLimit: 800
   #sliceSD: "010203"
