@@ -22,15 +22,16 @@ import (
 	"fmt"
 	"net/http"
 
+	"bytes"
+	"net"
+	"strings"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strings"
-	"net"
-	"bytes"
 
 	topov1alpha1 "github.com/ast9501/vxlan-fabric-operator/api/v1alpha1"
 	internal "github.com/ast9501/vxlan-fabric-operator/internal"
@@ -42,10 +43,9 @@ const finalizerName string = "vxlanfabric.finalizer.win.nycu"
 
 // TN Manager api endpoints prefix
 const vxlanCommApi string = "/api/v1/vxlan/"
-const bridgeCommApi string = "/api/v1/bridge/"
 const sliceCommApi string = "/api/v1/slice/"
-var vxlanIntfIpStart string = "192.168.3.220"
 
+var vxlanIntfIpStart string = "192.168.3.220"
 
 type createVxlanBrPayload struct {
 	BindInterface  string `json:"bindInterface"`
@@ -56,10 +56,10 @@ type createVxlanBrPayload struct {
 }
 
 type createSlicePayload struct {
-	DstIp 		string 	`json:"DstIP"`
-	FlowRate 	int 	`json:FlowRate`
-	SliceSd 	string 	`json:SliceSD`
-	SrcIp		string 	`json:"SrcIP"`
+	DstIp    string `json:"DstIP"`
+	FlowRate int    `json:FlowRate`
+	SliceSd  string `json:SliceSD`
+	SrcIp    string `json:"SrcIP"`
 }
 
 const (
@@ -200,6 +200,7 @@ func (r *VxlanFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		// If vxlan bridge exist, skip
+		//FIXME: call api to retrieve "vxlan bridge" status, not "bridge" status
 		getVxlanApi := newGetVxlanReq(e.Endpoint, e.Iface)
 		client := &http.Client{}
 		req, err := http.NewRequest("GET", getVxlanApi, nil)
@@ -222,7 +223,7 @@ func (r *VxlanFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		// If vxlan bridge not exist, create new vxlan bridge
 		newVxlanApi := newCreateVxlanReq(e.Endpoint, e.Iface)
-		
+
 		// Build create vxlan body
 		newVxlanBridgeIpv4 := newIp()
 		newVxlanPayload, err := newCreateVxlanBody(e.OutgoingFace, newVxlanBridgeIpv4, s.Pop().Value, "100", "vxlan100")
@@ -273,7 +274,7 @@ func (r *VxlanFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			logger.Error(err, "Failed to build create slice body")
 		}
-		
+
 		req, err := http.NewRequest("POST", createSliceApi, bytes.NewReader([]byte(payload)))
 		if err != nil {
 			logger.Error(err, "Failed to build create slice request")
@@ -329,7 +330,7 @@ func newDelVxlanReq(url, intf string) string {
 }
 
 func newGetVxlanReq(url, intf string) string {
-	return fmt.Sprintf("http://"+url+bridgeCommApi+"%s", intf)
+	return fmt.Sprintf("http://"+url+vxlanCommApi+"%s", intf)
 }
 
 func newCreateVxlanReq(url, intf string) string {
@@ -359,10 +360,10 @@ func newCreateVxlanBody(bindIntf, vxlanBrIp, remoteIntfIp, vxlanId, vxlanIntfNam
 
 func newCreateSliceBody(dstIp string, flowRate int, sliceSd string, srcIp string) (string, error) {
 	payload := createSlicePayload{
-		DstIp: dstIp,
+		DstIp:    dstIp,
 		FlowRate: flowRate,
-		SliceSd: sliceSd,
-		SrcIp: srcIp,
+		SliceSd:  sliceSd,
+		SrcIp:    srcIp,
 	}
 
 	data, err := json.Marshal(payload)
@@ -381,7 +382,7 @@ func newIp() string {
 	ipv4[3] += 1
 	nextIpv4 := net.IPv4(ipv4[0], ipv4[1], ipv4[2], ipv4[3])
 	vxlanIntfIpStart = nextIpv4.String()
-	logger.Info("Generate new vxlan bridge ip", "ipv4", ipv4.String() + "/24")
+	logger.Info("Generate new vxlan bridge ip", "ipv4", ipv4.String()+"/24")
 	return ipv4.String() + "/24"
 }
 
